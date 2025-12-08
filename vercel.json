@@ -1,14 +1,6 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
-  "builds": [
-    { "src": "index.html", "use": "@vercel/static" },
-    { "src": "clusters_data.json", "use": "@vercel/static" }
-  ],
-  "routes": [
-    { "src": "/", "dest": "index.html" },
-    { "src": "/(.*)", "dest": "index.html" }
-  ],
   "headers": [
     {
       "source": "/clusters_data.json",

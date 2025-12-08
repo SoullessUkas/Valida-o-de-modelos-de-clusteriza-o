@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mapa de Clusters — Global Terrorism Database</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <style>
+    :root {--bg:#0f172a;--panel:#111827;--text:#e5e7eb;--accent:#22c55e;--muted:#94a3b8;}
+    html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,Segoe UI,Helvetica,Arial,sans-serif;color:var(--text);} 
+    .app{display:flex;flex-direction:column;height:100%;}
+    header{padding:16px 20px;border-bottom:1px solid #1f2937;background:linear-gradient(180deg,#0b1220 0,#0f172a 100%);} 
+    header h1{margin:0;font-size:20px;letter-spacing:.3px}
+    header p{margin:6px 0 0;color:var(--muted);font-size:13px}
+    .content{display:flex;gap:16px;padding:16px;height:calc(100% - 86px);} 
+    .side{width:320px;background:var(--panel);border:1px solid #1f2937;border-radius:12px;padding:16px;overflow:auto}
+    .side h2{margin:0 0 12px;font-size:16px}
+    .legend{display:flex;flex-wrap:wrap;gap:8px}
+    .chip{display:flex;align-items:center;gap:8px;background:#0b1220;border:1px solid #1f2937;padding:8px 10px;border-radius:10px;font-size:12px}
+    .dot{width:12px;height:12px;border-radius:50%}
+    .control{margin-top:12px;display:flex;flex-direction:column;gap:10px}
+    .control label{font-size:12px;color:var(--muted)}
+    .control input[type=range]{width:100%}
+    #map{flex:1;border:1px solid #1f2937;border-radius:12px;overflow:hidden}
+    footer{padding:10px 16px;border-top:1px solid #1f2937;color:var(--muted);font-size:12px}
+    .btn{background:#0ea5e9;color:white;border:none;padding:8px 10px;border-radius:8px;font-weight:600;cursor:pointer}
+    .btn.secondary{background:#1f2937;color:#e5e7eb}
+  </style>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Mapa Mundí — Clusters de Ataques (GTD)</h1>
+      <p>Visualização interativa dos agrupamentos e densidade de ataques. Arquivo: clusters_data.json</p>
+    </header>
+    <div class="content">
+      <aside class="side">
+        <h2>Camadas</h2>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn" id="toggleClusters">Clusters</button>
+          <button class="btn secondary" id="toggleHeat">Heatmap</button>
+        </div>
+        <h2>Filtros</h2>
+        <div class="control">
+          <label for="yearFilter">Ano</label>
+          <select id="yearFilter"></select>
+          <label for="regionFilter">Região</label>
+          <select id="regionFilter"></select>
+          <button class="btn secondary" id="resetFilters">Limpar filtros</button>
+        </div>
+        <h2 style="margin-top:16px">Carregar JSON</h2>
+        <div class="control">
+          <label for="jsonFile">Selecione clusters_data.json (fallback)</label>
+          <input type="file" id="jsonFile" accept="application/json,.json" />
+        </div>
+        <div class="control">
+          <label for="heatRadius">Raio do Heatmap</label>
+          <input type="range" id="heatRadius" min="5" max="40" value="20" />
+          <label for="heatBlur">Borrado do Heatmap</label>
+          <input type="range" id="heatBlur" min="10" max="40" value="25" />
+        </div>
+        <h2 style="margin-top:16px">Legenda</h2>
+        <div class="legend" id="legend"></div>
+        <div style="margin-top:16px">
+          <h2>Resumo</h2>
+          <div id="summary" style="font-size:13px;color:var(--muted)"></div>
+        </div>
+      </aside>
+      <div id="map"></div>
+    </div>
+    <footer>
+      Hospedado como site estático. O JSON deve estar no mesmo diretório.
+    </footer>
+  </div>
+
+  <script>
+    function color(i){ if(i<0) return '#9CA3AF'; const h=(i*47)%360; return `hsl(${h}deg,70%,55%)`; }
+    const map=L.map('map',{worldCopyJump:true});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:6, attribution:'© OpenStreetMap'}).addTo(map);
+    map.setView([20, 0], 2);
+    const heatLayer=L.heatLayer([], {radius:20, blur:25, maxZoom:6});
+    const clusterLayer=L.layerGroup();
+    let currentMode='clusters';
+    document.getElementById('toggleClusters').onclick=()=>{ map.removeLayer(heatLayer); map.addLayer(clusterLayer); currentMode='clusters'; };
+    document.getElementById('toggleHeat').onclick=()=>{ map.removeLayer(clusterLayer); map.addLayer(heatLayer); currentMode='heat'; };
+    document.getElementById('heatRadius').oninput=(e)=>{ heatLayer.setOptions({radius: +e.target.value}); };
+    document.getElementById('heatBlur').oninput=(e)=>{ heatLayer.setOptions({blur: +e.target.value}); };
+    function updateLegend(counts){
+      const el=document.getElementById('legend'); el.innerHTML='';
+      const keys=Object.keys(counts).map(k=>+k).filter(k=>k>=0).sort((a,b)=>a-b).slice(0,12);
+      for(const k of keys){ const div=document.createElement('div'); div.className='chip'; const dot=document.createElement('div'); dot.className='dot'; dot.style.background=color(k); const txt=document.createElement('span'); txt.textContent=`Cluster ${k} · ${counts[k]} pontos`; div.append(dot, txt); el.append(div); }
+      if(counts['-1']){ const div=document.createElement('div'); div.className='chip'; const dot=document.createElement('div'); dot.className='dot'; dot.style.background=color(-1); const txt=document.createElement('span'); txt.textContent=`Ruído · ${counts['-1']} pontos`; div.append(dot, txt); el.append(div); }
+    }
+    function summarizeData(data){
+      const n=data.length; const noise=data.filter(p=>p.cluster_id<0).length;
+      const clusters=new Set(data.filter(p=>p.cluster_id>=0).map(p=>p.cluster_id));
+      document.getElementById('summary').textContent=`Pontos: ${n} · Clusters: ${clusters.size} · Ruído: ${noise}`;
+    }
+    let dataAll = [];
+    let dataFiltered = [];
+    function buildFilters(data){
+      const yearSel=document.getElementById('yearFilter');
+      const regSel=document.getElementById('regionFilter');
+      const years=[...new Set(data.map(p=>p.iyear).filter(v=>v!==undefined))].sort((a,b)=>a-b);
+      const regions=[...new Set(data.map(p=>p.region_txt || p.region).filter(Boolean))].sort();
+      yearSel.innerHTML = '<option value="">Todos</option>' + years.map(y=>`<option value="${y}">${y}</option>`).join('');
+      regSel.innerHTML = '<option value="">Todas</option>' + regions.map(r=>`<option value="${r}">${r}</option>`).join('');
+    }
+    function applyFilters(){
+      const yVal=document.getElementById('yearFilter').value;
+      const rVal=document.getElementById('regionFilter').value;
+      dataFiltered = dataAll.filter(p=>{
+        const yOk = !yVal || (p.iyear!==undefined && String(p.iyear)===String(yVal));
+        const rField = p.region_txt || p.region;
+        const rOk = !rVal || (rField && String(rField)===String(rVal));
+        return yOk && rOk;
+      });
+      const heatData = dataFiltered.map(p => [p.lat, p.lon, p.nkill ? Math.min(p.nkill + 1, 10) : 1]);
+      heatLayer.setLatLngs(heatData);
+      clusterLayer.clearLayers();
+      const markers = L.markerClusterGroup({ disableClusteringAtZoom: 8, maxClusterRadius: 50 });
+      dataFiltered.forEach(p => {
+        const isNoise = p.cluster_id === -1;
+        const markerColor = isNoise ? '#9CA3AF' : color(p.cluster_id);
+        const circle = L.circleMarker([p.lat, p.lon], {
+          radius: 5,
+          color: markerColor,
+          fillColor: markerColor,
+          fillOpacity: 0.7,
+          weight: 1
+        });
+        let popupContent = `<b>${isNoise ? 'Ruído / Isolado' : 'Cluster ' + p.cluster_id}</b>`;
+        if (p.iyear !== undefined) popupContent += `<br/>Ano: ${p.iyear}`;
+        const regionLabel = p.region_txt || p.region;
+        if (regionLabel) popupContent += `<br/>Região: ${regionLabel}`;
+        if (p.nkill !== undefined) popupContent += `<br/>Vítimas Fatais: ${p.nkill}`;
+        circle.bindPopup(popupContent);
+        markers.addLayer(circle);
+      });
+      clusterLayer.addLayer(markers);
+      if(currentMode==='clusters'){ map.addLayer(clusterLayer); } else { map.addLayer(heatLayer); }
+      const counts={}; dataFiltered.forEach(p=>{ const k=String(p.cluster_id); counts[k]=(counts[k]||0)+1; });
+      updateLegend(counts);
+      summarizeData(dataFiltered);
+    }
+    fetch('clusters_data.json')
+      .then(response => response.json())
+      .then(data => {
+        dataAll = data;
+        buildFilters(dataAll);
+        applyFilters();
+      })
+      .catch(error => {
+        alert("Erro: Não foi possível carregar 'clusters_data.json'. Selecione o arquivo manualmente abaixo.");
+      });
+    document.getElementById('yearFilter').addEventListener('change', applyFilters);
+    document.getElementById('regionFilter').addEventListener('change', applyFilters);
+    document.getElementById('resetFilters').addEventListener('click', ()=>{
+      document.getElementById('yearFilter').value='';
+      document.getElementById('regionFilter').value='';
+      applyFilters();
+    });
+    document.getElementById('jsonFile').addEventListener('change', (e)=>{
+      const file=e.target.files[0]; if(!file) return; const reader=new FileReader();
+      reader.onload=()=>{ try{ dataAll=JSON.parse(reader.result); buildFilters(dataAll); applyFilters(); } catch(err){ alert('Arquivo JSON inválido.'); } };
+      reader.readAsText(file);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+numpy==2.3.5
+pandas==2.3.3
+scikit-learn==1.8.0
+scipy==1.16.3
+hdbscan==0.8.41; python_version < "3.14"
+matplotlib==3.10.8
+seaborn==0.13.2
+ipython==9.8.0

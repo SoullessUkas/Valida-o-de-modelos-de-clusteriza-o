@@ -49,7 +49,7 @@ Projeto para geração e visualização de clusters geográficos do Global Terro
 
 ### Vídeo (passo a passo)
 - Assista ao vídeo explicando como rodar o `index.html` localmente e usar os filtros:
-  - [Execução local e uso da interface]([tutorial_rodar_index.mp4](https://youtu.be/SGfJHvt0iA0))
+  - [Execução local e uso da interface](https://youtu.be/SGfJHvt0iA0)
 
 ## Deploy (Vercel)
 - O projeto está hospedado na Vercel: `https://validacaomodelo-clust.vercel.app/`
